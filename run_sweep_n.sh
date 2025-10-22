@@ -5,10 +5,7 @@
 #SBATCH --time=24:00:00
 #SBATCH --mem=8G
 #SBATCH --cpus-per-task=1
-#SBATCH --array=1-32
-
-source ~/miniconda3/etc/profile.d/conda.sh
-conda activate CS2109S
+#SBATCH --array=1-24
 
 # Create output directories
 mkdir -p results logs
@@ -16,7 +13,7 @@ mkdir -p results logs
 # Define experiment parameters
 N_VALUES=(10 25 50 100)
 KINDS=("goods" "chores")
-MIXES=("beta_uniform" "normal_uniform" "mixed_demo")
+MIXES=("beta" "beta_uniform" "normal_uniform" "mixed_demo")
 TRIALS=10
 
 # Calculate which experiment to run based on SLURM_ARRAY_TASK_ID
