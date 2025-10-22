@@ -105,7 +105,7 @@ def main():
     if args.mode == 'sweep_m':
         if not args.m_list:
             args.m_list = [int(c * args.n) for c in [10.0, 20.0, 30.0, 40.0]] \
-                + [int(c * args.n * np.log(max(3, args.n))) for c in [1.0, 5.0, 10.0, 20.0]]
+                + [int(c * args.n * np.log(max(3, args.n))) for c in [1.0, 10.0, 100.0, 1000.0]]
         res = sweep_m(n=args.n, m_list=args.m_list, kind=args.kind, trials=args.trials, seed=args.seed, item_dist_factory=factory)
         out = {int(m): r for m, r in res}
         print(json.dumps(out))
@@ -114,7 +114,7 @@ def main():
     if args.mode == 'sweep_n':
         if not args.n_list:
             args.n_list = [int(c * args.m) for c in [10.0, 20.0, 30.0, 40.0]] \
-                + [int((c * args.m) / np.log(max(3, args.n))) for c in [1.0, 5.0, 10.0, 20.0]]
+                + [int((c * args.m) / np.log(max(3, args.m))) for c in [0.001, 0.01, 0.1, 1.0]]
         res = sweep_n(n_list=args.n_list, m=args.m, kind=args.kind, trials=args.trials, seed=args.seed, item_dist_factory=factory)
         out = {int(n): r for n, r in res}
         print(json.dumps(out))
