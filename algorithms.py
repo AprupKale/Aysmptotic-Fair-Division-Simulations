@@ -3,6 +3,7 @@ Algorithms required by the paper:
  - Large regime (m = Ω(n log n)): maximum-utility per item
    * goods: assign to argmax per item
    * chores: assign to argmin per item
+ - Large regime sampled version: sample O(log n) agents per item, assign to best among them
  - Small regime (m = O(n log n)): matching-based (one-to-one)
    Implemented in matching.py (exact).
 
@@ -17,21 +18,7 @@ import numpy as np
 from matching import rectangular_assignment_exact
 from utils import Allocation, Instance
 
-# Envy metrics -------------------------------------------------
-
-def envy_free(inst: Instance, alloc: Allocation):
-    U = inst.U
-    n, m = U.shape
-    X = alloc.to_matrix(n, m)
-    V = U @ X.T
-    if inst.kind == 'goods':
-        envy = np.maximum(0.0, V - np.diag(V)[:, None])
-    else:
-        envy = np.maximum(0.0, np.diag(V)[:, None] - V)
-    np.fill_diagonal(envy, 0.0)
-    return (bool(np.allclose(envy, 0.0)), float(np.max(envy) if envy.size else 0.0))
-
-# Large-regime algorithm --------------------------------------
+# Large-regime algorithms --------------------------------------
 
 def alg_max_per_item(inst: Instance) -> Allocation:
     U = inst.U
@@ -44,6 +31,24 @@ def alg_max_per_item(inst: Instance) -> Allocation:
     for j, i in enumerate(winners):
         bundles[int(i)].append(j)
     return Allocation(bundles)
+
+def alg_max_per_item_sampled(inst: Instance, num_samples: int) -> Allocation:
+    U = inst.U
+    n, m = U.shape
+    num_samples = min(num_samples, n)
+    bundles = [[] for _ in range(n)]
+    for j in range(m):
+        sampled_agents = np.random.choice(n, size=num_samples, replace=False)
+        sampled_utilities = U[sampled_agents, j]
+        if inst.kind == 'goods':
+            winner_idx = np.argmax(sampled_utilities)
+        else:  # chores
+            winner_idx = np.argmin(sampled_utilities)
+        winner = sampled_agents[winner_idx]
+        bundles[int(winner)].append(j)
+    return Allocation(bundles)
+
+# Small-regime algorithm --------------------------------------
 
 def alg_matching(inst: Instance) -> Allocation:
     """Multi-round one-to-one matchings so each agent gets x or x+1 items.

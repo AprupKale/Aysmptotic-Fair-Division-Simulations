@@ -1,352 +1,274 @@
 #!/usr/bin/env python3
 """
-Visualization script for fair division experiments.
-Generates comprehensive plots from experiment results.
+Visualizations for fair-division experiments.
+
+Features
+- Non-sampling + sampling plots (envy metrics)
+- Comparison plots
+- Welfare ratio (sampling / non-sampling) per s value
+- Style presets: paper / talk / dark
 
 Usage:
-    python visualize_results.py --input results/all_results.csv --output plots/
+    python visualize_results.py --input_dir results/ --output plots/ \
+        --kind goods --mix uniform --n 20 --style talk
 """
 
 import argparse
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-import numpy as np
+import json
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Tuple, Optional
 
-# Set style
-sns.set_style("whitegrid")
-plt.rcParams['figure.figsize'] = (12, 8)
-plt.rcParams['font.size'] = 11
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 
-def load_data(csv_path: str) -> pd.DataFrame:
-    """Load and preprocess experiment results."""
-    df = pd.read_csv(csv_path)
-    df['n'] = pd.to_numeric(df['n'], errors='coerce')
-    df['m'] = pd.to_numeric(df['m'], errors='coerce')
-    df['m_over_n'] = df['m'] / df['n']
-    df['n_over_m'] = df['n'] / df['m']
-    df['regime'] = df.apply(lambda row: 
-        'Large (m>>n)' if row['m_over_n'] > 10 else 
-        'Small (n>>m)' if row['n_over_m'] > 10 else 
-        'Balanced', axis=1)
-    return df
+# ----------------------------- Styling ---------------------------------------
 
-def plot_ef_rate_vs_m(df: pd.DataFrame, output_dir: Path):
-    """Plot envy-free rate as m increases (fixed n)."""
-    sweep_m = df[df['sweep_type'] == 'm'].copy()
-    
-    for kind in sweep_m['kind'].unique():
-        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-        fig.suptitle(f'Envy-Free Rate vs Number of Items (m) - {kind.capitalize()}', 
-                     fontsize=16, fontweight='bold')
-        
-        for idx, mix in enumerate(sweep_m['mix'].unique()[:4]):
-            ax = axes[idx // 2, idx % 2]
-            subset = sweep_m[(sweep_m['kind'] == kind) & (sweep_m['mix'] == mix)]
-            
-            for n_val in sorted(subset['n'].unique()):
-                n_data = subset[subset['n'] == n_val].sort_values('m')
-                ax.plot(n_data['m'], n_data['ef_rate_max_per_item'], 
-                       marker='o', label=f'Max-per-item (n={n_val})', linewidth=2)
-                ax.plot(n_data['m'], n_data['ef_rate_matching'], 
-                       marker='s', linestyle='--', label=f'Matching (n={n_val})', linewidth=2)
-            
-            ax.set_xlabel('Number of items (m)', fontsize=12)
-            ax.set_ylabel('Envy-free rate', fontsize=12)
-            ax.set_title(f'Mix: {mix}', fontsize=13)
-            ax.legend(fontsize=9, loc='best')
-            ax.grid(True, alpha=0.3)
-            ax.set_ylim(-0.05, 1.05)
-        
-        plt.tight_layout()
-        plt.savefig(output_dir / f'ef_rate_vs_m_{kind}.png', dpi=300, bbox_inches='tight')
-        plt.close()
-        print(f"Saved: ef_rate_vs_m_{kind}.png")
+CB_PALETTE = [
+    "#0072B2", "#D55E00", "#009E73", "#CC79A7",
+    "#F0E442", "#56B4E9", "#E69F00", "#000000"
+]
 
-def plot_ef_rate_vs_n(df: pd.DataFrame, output_dir: Path):
-    """Plot envy-free rate as n increases (fixed m)."""
-    sweep_n = df[df['sweep_type'] == 'n'].copy()
-    
-    for kind in sweep_n['kind'].unique():
-        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-        fig.suptitle(f'Envy-Free Rate vs Number of Agents (n) - {kind.capitalize()}', 
-                     fontsize=16, fontweight='bold')
-        
-        for idx, mix in enumerate(sweep_n['mix'].unique()[:4]):
-            ax = axes[idx // 2, idx % 2]
-            subset = sweep_n[(sweep_n['kind'] == kind) & (sweep_n['mix'] == mix)]
-            
-            for m_val in sorted(subset['m'].unique()):
-                m_data = subset[subset['m'] == m_val].sort_values('n')
-                ax.plot(m_data['n'], m_data['ef_rate_max_per_item'], 
-                       marker='o', label=f'Max-per-item (m={m_val})', linewidth=2)
-                ax.plot(m_data['n'], m_data['ef_rate_matching'], 
-                       marker='s', linestyle='--', label=f'Matching (m={m_val})', linewidth=2)
-            
-            ax.set_xlabel('Number of agents (n)', fontsize=12)
-            ax.set_ylabel('Envy-free rate', fontsize=12)
-            ax.set_title(f'Mix: {mix}', fontsize=13)
-            ax.legend(fontsize=9, loc='best')
-            ax.grid(True, alpha=0.3)
-            ax.set_ylim(-0.05, 1.05)
-        
-        plt.tight_layout()
-        plt.savefig(output_dir / f'ef_rate_vs_n_{kind}.png', dpi=300, bbox_inches='tight')
-        plt.close()
-        print(f"Saved: ef_rate_vs_n_{kind}.png")
+def set_style(mode: str = "paper"):
+    """
+    mode: 'paper' (default), 'talk', or 'dark'
+    """
+    plt.rcParams.update({
+        "figure.figsize": (12, 7),
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.grid": True,
+        "grid.alpha": 0.25,
+        "axes.titleweight": "bold",
+        "axes.titlepad": 10,
+        "axes.labelpad": 8,
+        "legend.frameon": False,
+        "legend.borderaxespad": 0.6,
+        "lines.linewidth": 2.5,
+        "lines.markersize": 7,
+        "savefig.bbox": "tight",
+        "savefig.dpi": 300,
+        "font.size": 11,
+    })
+    if mode == "talk":
+        plt.rcParams.update({"font.size": 13, "lines.linewidth": 3.0, "lines.markersize": 8})
+    if mode == "dark":
+        plt.style.use("dark_background")
+        plt.rcParams.update({"grid.color": "#666666", "axes.edgecolor": "#CCCCCC"})
+    # set default color cycle
+    from cycler import cycler
+    plt.rcParams["axes.prop_cycle"] = cycler(color=CB_PALETTE)
 
-def plot_regime_comparison(df: pd.DataFrame, output_dir: Path):
-    """Compare algorithms across regimes (large vs small vs balanced)."""
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-    fig.suptitle('Algorithm Performance by Regime', fontsize=16, fontweight='bold')
-    
-    metrics = [
-        ('ef_rate_max_per_item', 'EF Rate: Max-per-item'),
-        ('ef_rate_matching', 'EF Rate: Matching'),
-        ('mean_max_envy_max_per_item', 'Max Envy: Max-per-item'),
-        ('mean_max_envy_matching', 'Max Envy: Matching'),
-        ('mean_welfare_max_per_item', 'Welfare: Max-per-item'),
-        ('mean_welfare_matching', 'Welfare: Matching'),
-    ]
-    
-    for idx, (metric, title) in enumerate(metrics):
-        ax = axes[idx // 3, idx % 3]
-        
-        # Aggregate by regime and kind
-        grouped = df.groupby(['regime', 'kind'])[metric].mean().reset_index()
-        
-        for kind in grouped['kind'].unique():
-            kind_data = grouped[grouped['kind'] == kind]
-            ax.bar([f"{r}\n({kind})" for r in kind_data['regime']], 
-                   kind_data[metric], 
-                   alpha=0.7, 
-                   label=kind.capitalize())
-        
-        ax.set_ylabel(title, fontsize=11)
-        ax.set_xlabel('Regime', fontsize=11)
-        ax.tick_params(axis='x', rotation=45)
-        ax.grid(True, alpha=0.3, axis='y')
-        if 'rate' in metric.lower():
-            ax.set_ylim(0, 1.05)
-    
+def savefig_both(outdir: Path, fname: str):
+    outdir.mkdir(parents=True, exist_ok=True)
+    png = outdir / f"{fname}.png"
+    svg = outdir / f"{fname}.svg"
+    plt.savefig(png, transparent=False)
+    plt.savefig(svg, transparent=True)
+    print(f"Saved: {png.name}, {svg.name}")
+
+# ----------------------------- IO --------------------------------------------
+
+def load_json(path: Path) -> Dict:
+    with path.open('r') as f:
+        return json.load(f)
+
+# ----------------------------- Plots -----------------------------------------
+
+def plot_non_sampling_envy_metrics(data: Dict, output_dir: Path, kind: str, mix: str, n: int):
+    m_values = sorted(int(m) for m in data.keys())
+    wer = [data[str(m)]['worst_envy_ratio_max_per_item'] for m in m_values]
+    frac = [data[str(m)]['envious_agents_fraction_max_per_item'] for m in m_values]
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(12, 9))
+    fig.suptitle(f'Non-Sampling: {kind.capitalize()}, {mix}, n={n}')
+
+    ax1.plot(m_values, wer, marker='o')
+    ax1.set_ylabel('Worst envy ratio')
+    ax1.yaxis.set_major_locator(MaxNLocator(nbins=6))
+
+    ax2.plot(m_values, frac, marker='s')
+    ax2.set_xlabel('Number of items (m)')
+    ax2.set_ylabel('Fraction with envy')
+    ax2.set_ylim(-0.02, 1.02)
+    ax2.yaxis.set_major_locator(MaxNLocator(nbins=6))
+
     plt.tight_layout()
-    plt.savefig(output_dir / 'regime_comparison.png', dpi=300, bbox_inches='tight')
+    savefig_both(output_dir, f'non_sampling_{kind}_{mix}_n{n}')
     plt.close()
-    print(f"Saved: regime_comparison.png")
 
-def plot_welfare_vs_fairness(df: pd.DataFrame, output_dir: Path):
-    """Scatter plot: welfare vs envy-free rate trade-off."""
-    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-    fig.suptitle('Welfare vs Fairness Trade-off', fontsize=16, fontweight='bold')
-    
-    algorithms = [
-        ('max_per_item', 'Max-per-item', 'o'),
-        ('matching', 'Matching', 's')
-    ]
-    
-    for ax_idx, kind in enumerate(['goods', 'chores']):
-        ax = axes[ax_idx]
-        kind_data = df[df['kind'] == kind]
-        
-        for alg_name, alg_label, marker in algorithms:
-            ef_col = f'ef_rate_{alg_name}'
-            welfare_col = f'mean_welfare_{alg_name}'
-            
-            ax.scatter(kind_data[ef_col], kind_data[welfare_col], 
-                      alpha=0.6, s=50, marker=marker, label=alg_label)
-        
-        ax.set_xlabel('Envy-free rate', fontsize=12)
-        ax.set_ylabel('Mean welfare', fontsize=12)
-        ax.set_title(f'{kind.capitalize()}', fontsize=13)
-        ax.legend(fontsize=11)
-        ax.grid(True, alpha=0.3)
-    
+
+def plot_sampling_envy_metrics(data_dict: Dict[int, Dict], output_dir: Path, kind: str, mix: str, n: int):
+    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(12, 9))
+    fig.suptitle(f'Sampling: {kind.capitalize()}, {mix}, n={n}')
+
+    for idx, s_val in enumerate(sorted(data_dict.keys())):
+        data = data_dict[s_val]
+        m_values = sorted(int(m) for m in data.keys())
+        wer = [data[str(m)]['worst_envy_ratio_max_per_item_sampled'] for m in m_values]
+        frac = [data[str(m)]['envious_agents_fraction_max_per_item_sampled'] for m in m_values]
+
+        ax1.plot(m_values, wer, marker='o', label=f's={s_val}')
+        ax2.plot(m_values, frac, marker='s', label=f's={s_val}')
+
+    ax1.set_ylabel('Worst envy ratio')
+    ax1.yaxis.set_major_locator(MaxNLocator(nbins=6))
+    ax1.legend(ncol=2, fontsize=10)
+
+    ax2.set_xlabel('Number of items (m)')
+    ax2.set_ylabel('Fraction with envy')
+    ax2.set_ylim(-0.02, 1.02)
+    ax2.yaxis.set_major_locator(MaxNLocator(nbins=6))
+    ax2.legend(ncol=2, fontsize=10)
+
     plt.tight_layout()
-    plt.savefig(output_dir / 'welfare_vs_fairness.png', dpi=300, bbox_inches='tight')
+    savefig_both(output_dir, f'sampling_{kind}_{mix}_n{n}')
     plt.close()
-    print(f"Saved: welfare_vs_fairness.png")
 
-def plot_envy_heatmap(df: pd.DataFrame, output_dir: Path):
-    """Heatmap of mean maximum envy across (n, m) combinations."""
-    for kind in df['kind'].unique():
-        for alg in ['max_per_item', 'matching']:
-            fig, ax = plt.subplots(figsize=(12, 10))
-            
-            kind_data = df[df['kind'] == kind].copy()
-            envy_col = f'mean_max_envy_{alg}'
-            
-            # Create pivot table
-            pivot = kind_data.pivot_table(
-                values=envy_col, 
-                index='n', 
-                columns='m', 
-                aggfunc='mean'
-            )
-            
-            sns.heatmap(pivot, annot=False, fmt='.3f', cmap='RdYlGn_r', 
-                       ax=ax, cbar_kws={'label': 'Mean Max Envy'})
-            
-            ax.set_title(f'Mean Maximum Envy - {alg.replace("_", " ").title()} ({kind.capitalize()})', 
-                        fontsize=14, fontweight='bold')
-            ax.set_xlabel('Number of items (m)', fontsize=12)
-            ax.set_ylabel('Number of agents (n)', fontsize=12)
-            
-            plt.tight_layout()
-            plt.savefig(output_dir / f'envy_heatmap_{alg}_{kind}.png', dpi=300, bbox_inches='tight')
-            plt.close()
-            print(f"Saved: envy_heatmap_{alg}_{kind}.png")
 
-def plot_mix_comparison(df: pd.DataFrame, output_dir: Path):
-    """Compare different item distributions (mixes)."""
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-    fig.suptitle('Effect of Item Distribution on Algorithm Performance', 
-                 fontsize=16, fontweight='bold')
-    
-    metrics = [
-        ('ef_rate_max_per_item', 'EF Rate: Max-per-item'),
-        ('ef_rate_matching', 'EF Rate: Matching'),
-        ('mean_welfare_max_per_item', 'Welfare: Max-per-item'),
-        ('mean_welfare_matching', 'Welfare: Matching'),
-    ]
-    
-    for idx, (metric, title) in enumerate(metrics):
-        ax = axes[idx // 2, idx % 2]
-        
-        grouped = df.groupby(['mix', 'kind'])[metric].mean().reset_index()
-        
-        x = np.arange(len(grouped['mix'].unique()))
-        width = 0.35
-        
-        for kind_idx, kind in enumerate(['goods', 'chores']):
-            kind_data = grouped[grouped['kind'] == kind].sort_values('mix')
-            ax.bar(x + kind_idx * width, kind_data[metric], width, 
-                   alpha=0.7, label=kind.capitalize())
-        
-        ax.set_ylabel(title, fontsize=11)
-        ax.set_xlabel('Item Distribution', fontsize=11)
-        ax.set_xticks(x + width / 2)
-        ax.set_xticklabels(grouped['mix'].unique(), rotation=45, ha='right')
-        ax.legend(fontsize=10)
-        ax.grid(True, alpha=0.3, axis='y')
-        if 'rate' in metric.lower():
-            ax.set_ylim(0, 1.05)
-    
+def plot_sampling_vs_non_sampling_comparison(non_sampling_data: Dict,
+                                             sampling_data_dict: Dict[int, Dict],
+                                             output_dir: Path, kind: str, mix: str, n: int):
+    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(12, 9))
+    fig.suptitle(f'Comparison: {kind.capitalize()}, {mix}, n={n}')
+
+    m_values = sorted(int(m) for m in non_sampling_data.keys())
+    wer_ns = [non_sampling_data[str(m)]['worst_envy_ratio_max_per_item'] for m in m_values]
+    frac_ns = [non_sampling_data[str(m)]['envious_agents_fraction_max_per_item'] for m in m_values]
+
+    # heavy baseline
+    ax1.plot(m_values, wer_ns, marker='o', color="#222222", linewidth=3.5, label='Non-sampling')
+    ax2.plot(m_values, frac_ns, marker='o', color="#222222", linewidth=3.5, label='Non-sampling')
+
+    for s_val in sorted(sampling_data_dict.keys()):
+        data = sampling_data_dict[s_val]
+        m_s = sorted(int(m) for m in data.keys())
+        wer = [data[str(m)]['worst_envy_ratio_max_per_item_sampled'] for m in m_s]
+        frac = [data[str(m)]['envious_agents_fraction_max_per_item_sampled'] for m in m_s]
+
+        ax1.plot(m_s, wer, marker='^', label=f's={s_val}', alpha=0.9)
+        ax2.plot(m_s, frac, marker='^', label=f's={s_val}', alpha=0.9)
+
+    ax1.set_ylabel('Worst envy ratio')
+    ax1.yaxis.set_major_locator(MaxNLocator(nbins=6))
+    ax1.legend(ncol=2, fontsize=10)
+
+    ax2.set_xlabel('Number of items (m)')
+    ax2.set_ylabel('Fraction with envy')
+    ax2.set_ylim(-0.02, 1.02)
+    ax2.yaxis.set_major_locator(MaxNLocator(nbins=6))
+    ax2.legend(ncol=2, fontsize=10)
+
     plt.tight_layout()
-    plt.savefig(output_dir / 'mix_comparison.png', dpi=300, bbox_inches='tight')
+    savefig_both(output_dir, f'comparison_{kind}_{mix}_n{n}')
     plt.close()
-    print(f"Saved: mix_comparison.png")
 
-def plot_ratio_analysis(df: pd.DataFrame, output_dir: Path):
-    """Analyze performance as a function of m/n ratio."""
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-    fig.suptitle('Performance vs m/n Ratio (log scale)', fontsize=16, fontweight='bold')
-    
-    for kind_idx, kind in enumerate(['goods', 'chores']):
-        kind_data = df[df['kind'] == kind].copy()
-        kind_data = kind_data[kind_data['m_over_n'] > 0]  # Valid ratios only
-        
-        # EF rates
-        ax = axes[kind_idx, 0]
-        for mix in kind_data['mix'].unique():
-            mix_data = kind_data[kind_data['mix'] == mix].sort_values('m_over_n')
-            ax.plot(mix_data['m_over_n'], mix_data['ef_rate_max_per_item'], 
-                   marker='o', label=f'{mix} (max-per-item)', alpha=0.7)
-            ax.plot(mix_data['m_over_n'], mix_data['ef_rate_matching'], 
-                   marker='s', linestyle='--', label=f'{mix} (matching)', alpha=0.7)
-        
-        ax.set_xscale('log')
-        ax.set_xlabel('m/n ratio (log scale)', fontsize=11)
-        ax.set_ylabel('Envy-free rate', fontsize=11)
-        ax.set_title(f'{kind.capitalize()} - EF Rate', fontsize=12)
-        ax.legend(fontsize=8, loc='best')
-        ax.grid(True, alpha=0.3)
-        ax.set_ylim(-0.05, 1.05)
-        ax.axvline(x=1, color='red', linestyle=':', alpha=0.5, label='m=n')
-        
-        # Welfare
-        ax = axes[kind_idx, 1]
-        for mix in kind_data['mix'].unique():
-            mix_data = kind_data[kind_data['mix'] == mix].sort_values('m_over_n')
-            ax.plot(mix_data['m_over_n'], mix_data['mean_welfare_max_per_item'], 
-                   marker='o', label=f'{mix} (max-per-item)', alpha=0.7)
-            ax.plot(mix_data['m_over_n'], mix_data['mean_welfare_matching'], 
-                   marker='s', linestyle='--', label=f'{mix} (matching)', alpha=0.7)
-        
-        ax.set_xscale('log')
-        ax.set_xlabel('m/n ratio (log scale)', fontsize=11)
-        ax.set_ylabel('Mean welfare', fontsize=11)
-        ax.set_title(f'{kind.capitalize()} - Welfare', fontsize=12)
-        ax.legend(fontsize=8, loc='best')
-        ax.grid(True, alpha=0.3)
-        ax.axvline(x=1, color='red', linestyle=':', alpha=0.5, label='m=n')
-    
+
+def plot_welfare_ratio(non_sampling_data: Dict,
+                       sampling_data_dict: Dict[int, Dict],
+                       output_dir: Path, kind: str, mix: str, n: int):
+    base_w = {int(m): non_sampling_data[m]['welfare_max_per_item']
+              for m in non_sampling_data.keys()}
+
+    fig, ax = plt.subplots(figsize=(12, 6.5))
+    fig.suptitle(f'Welfare Ratio (Sampling / Non-sampling): {kind.capitalize()}, {mix}, n={n}')
+
+    for s_val in sorted(sampling_data_dict.keys()):
+        data_s = sampling_data_dict[s_val]
+        samp_w = {int(m): data_s[m]['welfare_max_per_item_sampled'] for m in data_s.keys()}
+
+        common_ms = sorted(set(base_w.keys()).intersection(samp_w.keys()))
+        if not common_ms:
+            continue
+
+        ratio = []
+        for m in common_ms:
+            if kind == 'goods':
+                denom = base_w[m]
+                num = samp_w[m]
+            else:  # chores
+                denom = -samp_w[m]
+                num = -base_w[m]
+            r = np.nan if denom == 0 else (num / denom)
+            ratio.append(r)
+
+        ax.plot(common_ms, ratio, marker='o', label=f's={s_val}', alpha=0.95)
+
+        finite = [x for x in ratio if np.isfinite(x)]
+        if finite:
+            print(f"[WELFARE RATIO] n={n}, {mix}/{kind}, s={s_val} | "
+                  f"mean={np.mean(finite):.4f}, std={np.std(finite):.4f}, "
+                  f"min={np.min(finite):.4f}, max={np.max(finite):.4f}")
+
+    ax.axhline(1.0, linestyle='--', linewidth=1.5, color='#888888', alpha=0.8)
+    ax.set_xlabel('Number of items (m)')
+    ax.set_ylabel('Welfare ratio: sampled / non-sampling')
+    ax.set_ylim(bottom=0)
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=6))
+    ax.legend(ncol=2, fontsize=10)
     plt.tight_layout()
-    plt.savefig(output_dir / 'ratio_analysis.png', dpi=300, bbox_inches='tight')
+    savefig_both(output_dir, f'welfare_ratio_{kind}_{mix}_n{n}')
     plt.close()
-    print(f"Saved: ratio_analysis.png")
 
-def generate_summary_stats(df: pd.DataFrame, output_dir: Path):
-    """Generate summary statistics table."""
-    summary = []
-    
-    for kind in df['kind'].unique():
-        for alg in ['max_per_item', 'matching']:
-            kind_data = df[df['kind'] == kind]
-            
-            stats = {
-                'Kind': kind.capitalize(),
-                'Algorithm': alg.replace('_', ' ').title(),
-                'Mean EF Rate': f"{kind_data[f'ef_rate_{alg}'].mean():.3f}",
-                'Std EF Rate': f"{kind_data[f'ef_rate_{alg}'].std():.3f}",
-                'Mean Welfare': f"{kind_data[f'mean_welfare_{alg}'].mean():.2f}",
-                'Std Welfare': f"{kind_data[f'mean_welfare_{alg}'].std():.2f}",
-                'Mean Max Envy': f"{kind_data[f'mean_max_envy_{alg}'].mean():.4f}",
-                'Std Max Envy': f"{kind_data[f'mean_max_envy_{alg}'].std():.4f}",
-            }
-            summary.append(stats)
-    
-    summary_df = pd.DataFrame(summary)
-    summary_df.to_csv(output_dir / 'summary_statistics.csv', index=False)
-    
-    print("\n" + "="*70)
-    print("SUMMARY STATISTICS")
-    print("="*70)
-    print(summary_df.to_string(index=False))
-    print("="*70 + "\n")
-    print(f"Saved: summary_statistics.csv")
+# ----------------------------- Main ------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(description='Visualize fair division experiment results')
-    parser.add_argument('--input', type=str, default='results/all_results.csv',
-                       help='Path to input CSV file')
+    parser.add_argument('--input_dir', type=str, default='results/',
+                        help='Directory containing JSON result files')
     parser.add_argument('--output', type=str, default='plots/',
-                       help='Output directory for plots')
+                        help='Output directory for plots')
+    parser.add_argument('--kind', type=str, default='goods', choices=['goods', 'chores'],
+                        help='Type of items')
+    parser.add_argument('--mix', type=str, default='uniform',
+                        help='Item distribution mix')
+    parser.add_argument('--n', type=int, default=20,
+                        help='Number of agents')
+    parser.add_argument('--style', type=str, default='paper', choices=['paper','talk','dark'],
+                        help='Visual style preset')
     args = parser.parse_args()
-    
-    # Create output directory
+
+    set_style(args.style)
+
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
-    
-    print(f"Loading data from {args.input}...")
-    df = load_data(args.input)
-    print(f"Loaded {len(df)} experiment results\n")
-    
-    print("Generating visualizations...")
-    print("-" * 70)
-    
-    plot_ef_rate_vs_m(df, output_dir)
-    plot_ef_rate_vs_n(df, output_dir)
-    plot_regime_comparison(df, output_dir)
-    plot_welfare_vs_fairness(df, output_dir)
-    plot_envy_heatmap(df, output_dir)
-    plot_mix_comparison(df, output_dir)
-    plot_ratio_analysis(df, output_dir)
-    generate_summary_stats(df, output_dir)
-    
-    print("-" * 70)
-    print(f"\nAll visualizations saved to {output_dir}/")
+    input_dir = Path(args.input_dir)
+
+    non_sampling_path = input_dir / f'results_n{args.n}_{args.mix}_{args.kind}_non_sampling.json'
+    non_sampling_data: Optional[Dict] = None
+    sampling_data_dict: Dict[int, Dict] = {}
+
+    if non_sampling_path.exists():
+        non_sampling_data = load_json(non_sampling_path)
+        print(f"Loaded non-sampling data: {non_sampling_path.name}")
+        plot_non_sampling_envy_metrics(non_sampling_data, output_dir, args.kind, args.mix, args.n)
+    else:
+        print(f"Warning: Non-sampling file not found: {non_sampling_path.name}")
+
+    log_n = np.log(args.n)
+    s_candidates = []
+    for d in (1, 2, 5, 10):
+        s = max(1, int(d * log_n))
+        if s > args.n:
+            break
+        s_candidates.append(s)
+    for s in s_candidates:
+        p = input_dir / f'results_n{args.n}_{args.mix}_{args.kind}_s{s}.json'
+        if p.exists():
+            sampling_data_dict[s] = load_json(p)
+            print(f"Loaded sampling data for s={s}: {p.name}")
+        else:
+            print(f"Warning: Sampling file not found for s={s}: {p.name}")
+
+    if sampling_data_dict:
+        plot_sampling_envy_metrics(sampling_data_dict, output_dir, args.kind, args.mix, args.n)
+        if non_sampling_data:
+            plot_sampling_vs_non_sampling_comparison(non_sampling_data, sampling_data_dict,
+                                                     output_dir, args.kind, args.mix, args.n)
+            plot_welfare_ratio(non_sampling_data, sampling_data_dict,
+                               output_dir, args.kind, args.mix, args.n)
+
+    print(f"All visualizations saved to {output_dir}/")
 
 if __name__ == '__main__':
     main()

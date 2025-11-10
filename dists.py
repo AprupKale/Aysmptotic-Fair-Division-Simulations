@@ -24,8 +24,6 @@ class ItemDist:
     def sample_for_all_agents(self, n: int, rng: RNG) -> np.ndarray:
         raise NotImplementedError
 
-# Existing, already-good items -------------------------------
-
 class UniformItem(ItemDist):
     def __init__(self, a: float = 0.0, b: float = 1.0):
         assert 0.0 <= a < b <= 1.0
@@ -41,8 +39,6 @@ class BetaItem(ItemDist):
     def sample_for_all_agents(self, n: int, rng: RNG) -> np.ndarray:
         # simpler & faster: use NumPy's beta
         return rng._g.beta(self.alpha, self.beta, size=n)
-
-# Replacement: Proper truncated Normal via inverse-CDF (SciPy) --------------
 
 class TruncatedNormalItem(ItemDist):
     """
