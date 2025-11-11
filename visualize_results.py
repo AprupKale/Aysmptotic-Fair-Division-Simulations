@@ -44,18 +44,17 @@ def set_style(mode: str = "paper"):
         "axes.labelpad": 8,
         "legend.frameon": False,
         "legend.borderaxespad": 0.6,
-        "lines.linewidth": 2.5,
+        "lines.linewidth": 2.2,
         "lines.markersize": 7,
         "savefig.bbox": "tight",
         "savefig.dpi": 300,
         "font.size": 11,
     })
     if mode == "talk":
-        plt.rcParams.update({"font.size": 13, "lines.linewidth": 3.0, "lines.markersize": 8})
+        plt.rcParams.update({"font.size": 13, "lines.linewidth": 2.7, "lines.markersize": 8})
     if mode == "dark":
         plt.style.use("dark_background")
         plt.rcParams.update({"grid.color": "#666666", "axes.edgecolor": "#CCCCCC"})
-    # set default color cycle
     from cycler import cycler
     plt.rcParams["axes.prop_cycle"] = cycler(color=CB_PALETTE)
 
@@ -86,12 +85,15 @@ def plot_non_sampling_envy_metrics(data: Dict, output_dir: Path, kind: str, mix:
     ax1.plot(m_values, wer, marker='o')
     ax1.set_ylabel('Worst envy ratio')
     ax1.yaxis.set_major_locator(MaxNLocator(nbins=6))
+    ax1.set_ylim(bottom=1.0)
+    ax1.set_xscale('log')
 
     ax2.plot(m_values, frac, marker='s')
     ax2.set_xlabel('Number of items (m)')
     ax2.set_ylabel('Fraction with envy')
-    ax2.set_ylim(-0.02, 1.02)
+    ax2.set_ylim(0.0, 1.0)
     ax2.yaxis.set_major_locator(MaxNLocator(nbins=6))
+    ax2.set_xscale('log')
 
     plt.tight_layout()
     savefig_both(output_dir, f'non_sampling_{kind}_{mix}_n{n}')
@@ -113,13 +115,16 @@ def plot_sampling_envy_metrics(data_dict: Dict[int, Dict], output_dir: Path, kin
 
     ax1.set_ylabel('Worst envy ratio')
     ax1.yaxis.set_major_locator(MaxNLocator(nbins=6))
+    ax1.set_ylim(bottom=1.0)
     ax1.legend(ncol=2, fontsize=10)
+    ax1.set_xscale('log')
 
     ax2.set_xlabel('Number of items (m)')
     ax2.set_ylabel('Fraction with envy')
-    ax2.set_ylim(-0.02, 1.02)
+    ax2.set_ylim(0.0, 1.0)
     ax2.yaxis.set_major_locator(MaxNLocator(nbins=6))
     ax2.legend(ncol=2, fontsize=10)
+    ax2.set_xscale('log')
 
     plt.tight_layout()
     savefig_both(output_dir, f'sampling_{kind}_{mix}_n{n}')
@@ -136,9 +141,8 @@ def plot_sampling_vs_non_sampling_comparison(non_sampling_data: Dict,
     wer_ns = [non_sampling_data[str(m)]['worst_envy_ratio_max_per_item'] for m in m_values]
     frac_ns = [non_sampling_data[str(m)]['envious_agents_fraction_max_per_item'] for m in m_values]
 
-    # heavy baseline
-    ax1.plot(m_values, wer_ns, marker='o', color="#222222", linewidth=3.5, label='Non-sampling')
-    ax2.plot(m_values, frac_ns, marker='o', color="#222222", linewidth=3.5, label='Non-sampling')
+    ax1.plot(m_values, wer_ns, marker='o', color="#222222", linewidth=3.0, label='Non-sampling')
+    ax2.plot(m_values, frac_ns, marker='o', color="#222222", linewidth=3.0, label='Non-sampling')
 
     for s_val in sorted(sampling_data_dict.keys()):
         data = sampling_data_dict[s_val]
@@ -151,13 +155,16 @@ def plot_sampling_vs_non_sampling_comparison(non_sampling_data: Dict,
 
     ax1.set_ylabel('Worst envy ratio')
     ax1.yaxis.set_major_locator(MaxNLocator(nbins=6))
+    ax1.set_ylim(bottom=1.0)
     ax1.legend(ncol=2, fontsize=10)
+    ax1.set_xscale('log')
 
     ax2.set_xlabel('Number of items (m)')
     ax2.set_ylabel('Fraction with envy')
-    ax2.set_ylim(-0.02, 1.02)
+    ax2.set_ylim(0.0, 1.0)
     ax2.yaxis.set_major_locator(MaxNLocator(nbins=6))
     ax2.legend(ncol=2, fontsize=10)
+    ax2.set_xscale('log')
 
     plt.tight_layout()
     savefig_both(output_dir, f'comparison_{kind}_{mix}_n{n}')
@@ -200,12 +207,13 @@ def plot_welfare_ratio(non_sampling_data: Dict,
                   f"mean={np.mean(finite):.4f}, std={np.std(finite):.4f}, "
                   f"min={np.min(finite):.4f}, max={np.max(finite):.4f}")
 
-    ax.axhline(1.0, linestyle='--', linewidth=1.5, color='#888888', alpha=0.8)
+    ax.axhline(1.0, linestyle='--', linewidth=1.2, color='#888888', alpha=0.8)
     ax.set_xlabel('Number of items (m)')
     ax.set_ylabel('Welfare ratio: sampled / non-sampling')
     ax.set_ylim(bottom=0)
     ax.yaxis.set_major_locator(MaxNLocator(nbins=6))
     ax.legend(ncol=2, fontsize=10)
+    ax.set_xscale('log')
     plt.tight_layout()
     savefig_both(output_dir, f'welfare_ratio_{kind}_{mix}_n{n}')
     plt.close()
